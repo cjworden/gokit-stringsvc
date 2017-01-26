@@ -6,14 +6,21 @@ import (
 	"github.com/go-kit/kit/endpoint"
 	httptransport "github.com/go-kit/kit/transport/http"
 	"golang.org/x/net/context"
-	"log"
 	"net/http"
 	"strings"
+	"time"
+	"github.com/go-kit/kit/log"
+	"os"
 )
 
 func main() {
+	logger := log.NewLogfmtLogger(os.Stderr)
+
 	ctx := context.Background()
-	svc := stringService{}
+
+	var svc StringService
+	svc = stringService{}
+	svc = loggingMiddleware{logger, svc}
 
 	uppercaseHandler := httptransport.NewServer(
 		ctx,
@@ -31,7 +38,7 @@ func main() {
 
 	http.Handle("/uppercase", uppercaseHandler)
 	http.Handle("/count", countHandler)
-	log.Fatal(http.ListenAndServe(":8080", nil))
+	logger.Log(http.ListenAndServe(":8080", nil))
 
 }
 
@@ -115,4 +122,38 @@ func makeCountEndpoint(svc StringService) endpoint.Endpoint {
 		v := svc.Count(req.S)
 		return countResponse{v}, nil
 	}
+}
+
+type loggingMiddleware struct {
+	logger log.Logger
+	next StringService
+}
+
+func (mw loggingMiddleware) Uppercase(s string) (output string, err error) {
+	defer func(begin time.Time) {
+		mw.logger.Log(
+			"method", "uppercase",
+			"input", s,
+			"output", output,
+			"err", err,
+			"took", time.Since(begin),
+		)
+	}(time.Now())
+
+	output, err = mw.next.Uppercase(s)
+	return
+}
+
+func (mw loggingMiddleware) Count(s string) (n int) {
+	defer func(begin time.Time) {
+		mw.logger.Log(
+			"method", "count",
+			"input", s,
+			"n", n,
+			"took", time.Since(begin),
+		)
+	}(time.Now())
+
+	n = mw.next.Count(s)
+	return
 }
